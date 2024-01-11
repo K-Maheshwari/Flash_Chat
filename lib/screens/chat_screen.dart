@@ -1,7 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flash_chat/Constants.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
 
 final _fireStore = FirebaseFirestore.instance;
 late User LoggedInUser;
@@ -16,8 +20,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final messageTextController = TextEditingController();
   final _auth = FirebaseAuth.instance;
-
   late String messageText;
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +47,35 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
   }
+
+  File? img;
+  String url='';
+  final firestoreInstance = FirebaseFirestore.instance;
+
+  Future pickImage() async {
+    ImagePicker picker=ImagePicker();
+    final pick = await picker.pickImage(source: ImageSource.gallery);
+    setState(() {
+      if (pick != null) {
+        img = File(pick.path);
+        uploadImage();
+      } else {
+        debugPrint('failed');
+      }
+    });
+  }
+  Future uploadImage() async {
+    Reference ref = FirebaseStorage.instance.ref().child("images");
+    await ref.putFile(img!);
+    url = await ref.getDownloadURL();
+    debugPrint(url);
+    await firestoreInstance.collection('messages').add({
+      'sender' :LoggedInUser.email,
+      'url': url,
+      'timestamp': FieldValue.serverTimestamp(),
+    });
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +114,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       },
                       decoration: messageTextFieldDecoration,
                     ),
+                  ),
+                  IconButton(
+                      icon:Icon(Icons.camera_alt_outlined),
+                      color:Colors.lightBlueAccent,
+                    onPressed: () {
+                      pickImage();
+                    },
                   ),
                   TextButton(
                     onPressed: () {
@@ -129,18 +169,15 @@ class MessagesStream extends StatelessWidget {
           return Expanded(
             child: ListView.builder(
               reverse: true,
-              padding:
-              const EdgeInsets.symmetric(horizontal: 10.0, vertical: 20.0),
+              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 20.0),
               itemCount: messages.length,
               itemBuilder: (context, position) {
                 final messageText = messages[position].data()['text'];
                 final messageSender = messages[position].data()['sender'];
                 final currentUser = LoggedInUser.email;
-                return MessageBubble(
-                  sender: messageSender,
-                  text: messageText,
-                  isMe: currentUser == messageSender,
-                );
+                final imageUrl  = messages[position].data()['url'];
+
+                
               },
             ),
           );
@@ -150,10 +187,11 @@ class MessagesStream extends StatelessWidget {
 }
 
 class MessageBubble extends StatelessWidget {
-  MessageBubble({required this.sender, required this.text, required this.isMe});
+  MessageBubble({required this.sender, required this.text, required this.isMe, required this.imgUrl});
   final String sender;
   final String text;
   final bool isMe;
+  final String imgUrl;
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -169,7 +207,8 @@ class MessageBubble extends StatelessWidget {
               color: Colors.black54,
             ),
           ),
-          Material(
+          Container(
+            decoration: BoxDecoration(
             borderRadius: isMe
                 ? const BorderRadius.only(
                 topLeft: Radius.circular(30.0),
@@ -179,10 +218,14 @@ class MessageBubble extends StatelessWidget {
                 bottomLeft: Radius.circular(30.0),
                 bottomRight: Radius.circular(30.0),
                 topRight: Radius.circular(30.0)),
-            elevation: 5.0,
-            color: isMe ? Colors.lightBlueAccent : Colors.white,
+              color: isMe ? Colors.lightBlueAccent : Colors.white,
+            ),
             child: Column(
               children: [
+                if(imgUrl.isEmpty)
+                  SizedBox()
+                else
+                  Image.network(imgUrl,height: 200,width: 200),
                 Padding(
                   padding:
                   const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
